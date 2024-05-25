@@ -1,41 +1,42 @@
 import http from "http";
-import WebSocket from "ws";
+import { Server } from "socket.io";
 import express from "express";
 
 const app = express();
 
 app.set("view engine", "pug");
-app.set("views", __dirname + "/public/views")
+app.set("views", __dirname + "/public/views");
 app.use("/public", express.static(__dirname + "/public"));
-app.get("/", (req, res) => res.render("home"))
-app.get("/*", (req, res) => res.redirect("/"))
+app.get("/", (req, res) => res.render("home"));
+app.get("/*", (req, res) => res.redirect("/"));
 
 const port = 3000;
-const handleListen = () => console.log(`Listening on port ${port}`)
+const handleListen = () => console.log(`Listening on port ${port}`);
 
-const server = http.createServer(app);
-const wss = new WebSocket.Server({server});
-const sockets = [];
+const httpServer = http.createServer(app);
+const wsServer = new Server(httpServer);
 
-wss.on("connection", (socket) => {
-    sockets.push(socket);
-    socket["nickname"] = "Anonymous";
-    console.log("Connected to Browser");
-    socket.on("close", () => console.log("Disconnected from the browser"));
-    socket.on("message", (message) => {
-        if (Buffer.isBuffer(message)) {
-            message = message.toString('utf8');
-        }
-        const { type, payload } = JSON.parse(message);
-        switch (type) {
-            case "new_message":
-                sockets.forEach((savedSocket) => savedSocket.send(`${socket.nickname}: ${payload}`));
-                break;
-            case "nickname":
-                socket["nickname"] = payload;
-                break;
-        }
-    })
-})
+wsServer.on("connection", (socket) => {
+  socket.onAny((event) => {
+    console.log(`Socket Event: ${event}`);
+  });
 
-server.listen(port, handleListen);
+  socket.on("enterRoom", (roomName, done) => {
+    socket.join(roomName);
+    done();
+    socket.to(roomName).emit("welcome");
+  });
+
+  socket.on("newMessage", (message, roomName, done) => {
+    socket.to(roomName).emit("newMessage", message);
+    done();
+  });
+
+  socket.on("disconnecting", (reason, description) => {
+    socket.rooms.forEach((room) => {
+      socket.to(room).emit("bye");
+    });
+  });
+});
+
+httpServer.listen(port, handleListen);
